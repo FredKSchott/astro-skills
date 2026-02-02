@@ -1,0 +1,49 @@
+{
+  "name": "astro-skills",
+  "description": "Load and serve Agent Skills from your Astro site via well-known URIs",
+  "version": "0.0.1",
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "author": "fredkschott",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fredkschott/astro-skills.git"
+  },
+  "keywords": [
+    "astro",
+    "astro-integration",
+    "agent-skills",
+    "well-known",
+    "ai",
+    "agents"
+  ],
+  "exports": {
+    ".": "./dist/index.js",
+    "./routes/index-json": "./dist/routes/index-json.js",
+    "./routes/skill-files": "./dist/routes/skill-files.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "p-limit": "^6.2.0",
+    "picomatch": "^4.0.2",
+    "tinyglobby": "^0.2.14"
+  },
+  "peerDependencies": {
+    "astro": "*",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.0",
+    "@types/picomatch": "^3.0.2",
+    "astro": "*"
+  },
+  "publishConfig": {}
+}
