@@ -1,7 +1,7 @@
 {
   "name": "astro-skills",
   "description": "Load and serve Agent Skills from your Astro site via well-known URIs",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "type": "module",
   "types": "./dist/index.d.ts",
   "author": "fredkschott",
