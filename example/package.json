@@ -10,7 +10,6 @@
     "astro": "astro"
   },
   "dependencies": {
-    "astro-skills": "^0.0.1",
     "astro": "^5.0.0"
   }
 }

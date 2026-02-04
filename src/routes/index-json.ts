@@ -15,10 +15,22 @@ export const GET: APIRoute = async () => {
 	const skills = await getCollection('skills');
 
 	const index: SkillsIndex = {
-		skills: skills.map((skill: { data: { name: string; description: string } }) => ({
-			name: skill.data.name,
-			description: skill.data.description,
-		})),
+		skills: skills.map(
+			(skill: { data: { name: string; description: string; files: Record<string, unknown> } }) => {
+				// Extract file paths from the files record and sort with SKILL.md first
+				const filePaths = Object.keys(skill.data.files).sort((a, b) => {
+					if (a === 'SKILL.md') return -1;
+					if (b === 'SKILL.md') return 1;
+					return a.localeCompare(b);
+				});
+
+				return {
+					name: skill.data.name,
+					description: skill.data.description,
+					files: filePaths,
+				};
+			}
+		),
 	};
 
 	return new Response(JSON.stringify(index, null, 2), {

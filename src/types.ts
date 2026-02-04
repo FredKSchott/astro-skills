@@ -60,5 +60,6 @@ export interface SkillsIndex {
 	skills: Array<{
 		name: string;
 		description: string;
+		files: string[];
 	}>;
 }
