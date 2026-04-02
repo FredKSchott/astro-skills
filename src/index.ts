@@ -4,15 +4,15 @@ import type { AstroIntegration } from 'astro';
 export { skillsLoader } from './loader.js';
 
 // Re-export types
-export type { Skill, SkillData, SkillFile, SkillsIndex, SkillsLoaderOptions } from './types.js';
+export type { Skill, SkillData, SkillsIndex, SkillsIndexEntry, SkillsLoaderOptions, SkillType } from './types.js';
 
 const PKG_NAME = 'astro-skills';
 
 /**
- * Astro integration for Agent Skills Discovery.
+ * Astro integration for Agent Skills Discovery (v0.2.0).
  *
  * This integration:
- * 1. Injects routes for serving skills via the `.well-known/skills` path
+ * 1. Injects routes for serving skills via the `.well-known/agent-skills` path
  * 2. Works with the `skillsLoader` to load skills from the filesystem
  *
  * @example
@@ -51,16 +51,20 @@ export default function skillsIntegration(): AstroIntegration {
 
 				// Inject the index.json route
 				injectRoute({
-					pattern: '/.well-known/skills/index.json',
+					pattern: '/.well-known/agent-skills/index.json',
 					entrypoint: 'astro-skills/routes/index-json',
 				});
 
-				// Inject the catch-all skill files route
-				// This handles /.well-known/skills/[skill]/[...path]
-				// When path is empty/undefined, it defaults to SKILL.md
+				// Inject the SKILL.md route for skill-md type skills
 				injectRoute({
-					pattern: '/.well-known/skills/[skill]/[...path]',
-					entrypoint: 'astro-skills/routes/skill-files',
+					pattern: '/.well-known/agent-skills/[skill]/SKILL.md',
+					entrypoint: 'astro-skills/routes/skill-md',
+				});
+
+				// Inject the archive route for archive type skills
+				injectRoute({
+					pattern: '/.well-known/agent-skills/[skill].tar.gz',
+					entrypoint: 'astro-skills/routes/skill-archive',
 				});
 
 				logger.info('Agent Skills Discovery routes configured');

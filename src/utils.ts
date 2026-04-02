@@ -57,93 +57,7 @@ export function getSkillNameValidationError(name: string): string | null {
 }
 
 /**
- * MIME types for common file extensions
- */
-const MIME_TYPES: Record<string, string> = {
-	// Markdown
-	'.md': 'text/markdown',
-	'.markdown': 'text/markdown',
-
-	// Code
-	'.py': 'text/x-python',
-	'.js': 'text/javascript',
-	'.mjs': 'text/javascript',
-	'.ts': 'text/typescript',
-	'.mts': 'text/typescript',
-	'.jsx': 'text/jsx',
-	'.tsx': 'text/tsx',
-	'.sh': 'text/x-shellscript',
-	'.bash': 'text/x-shellscript',
-	'.zsh': 'text/x-shellscript',
-	'.rb': 'text/x-ruby',
-	'.go': 'text/x-go',
-	'.rs': 'text/x-rust',
-	'.java': 'text/x-java',
-	'.c': 'text/x-c',
-	'.cpp': 'text/x-c++',
-	'.h': 'text/x-c',
-	'.hpp': 'text/x-c++',
-	'.cs': 'text/x-csharp',
-	'.php': 'text/x-php',
-	'.swift': 'text/x-swift',
-	'.kt': 'text/x-kotlin',
-	'.scala': 'text/x-scala',
-	'.r': 'text/x-r',
-	'.sql': 'text/x-sql',
-
-	// Data formats
-	'.json': 'application/json',
-	'.yaml': 'text/yaml',
-	'.yml': 'text/yaml',
-	'.toml': 'text/toml',
-	'.xml': 'application/xml',
-	'.csv': 'text/csv',
-
-	// Text
-	'.txt': 'text/plain',
-	'.log': 'text/plain',
-	'.cfg': 'text/plain',
-	'.conf': 'text/plain',
-	'.ini': 'text/plain',
-	'.env': 'text/plain',
-
-	// Web
-	'.html': 'text/html',
-	'.htm': 'text/html',
-	'.css': 'text/css',
-
-	// Images
-	'.png': 'image/png',
-	'.jpg': 'image/jpeg',
-	'.jpeg': 'image/jpeg',
-	'.gif': 'image/gif',
-	'.webp': 'image/webp',
-	'.svg': 'image/svg+xml',
-	'.ico': 'image/x-icon',
-	'.bmp': 'image/bmp',
-	'.tiff': 'image/tiff',
-	'.tif': 'image/tiff',
-
-	// Documents
-	'.pdf': 'application/pdf',
-	'.doc': 'application/msword',
-	'.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-	'.xls': 'application/vnd.ms-excel',
-	'.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-
-	// Archives
-	'.zip': 'application/zip',
-	'.tar': 'application/x-tar',
-	'.gz': 'application/gzip',
-	'.rar': 'application/vnd.rar',
-	'.7z': 'application/x-7z-compressed',
-
-	// Other
-	'.wasm': 'application/wasm',
-};
-
-/**
- * Binary file extensions that should be base64-encoded
+ * Binary file extensions that should be base64-encoded in archives
  */
 const BINARY_EXTENSIONS = new Set([
 	// Images
@@ -182,14 +96,6 @@ const BINARY_EXTENSIONS = new Set([
 	'.dylib',
 	'.bin',
 ]);
-
-/**
- * Gets the MIME type for a file based on its extension.
- */
-export function getMimeType(filePath: string): string {
-	const ext = extname(filePath).toLowerCase();
-	return MIME_TYPES[ext] || 'application/octet-stream';
-}
 
 /**
  * Determines if a file should be treated as binary (and base64-encoded).

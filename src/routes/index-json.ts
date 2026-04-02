@@ -1,12 +1,13 @@
 import type { APIRoute } from 'astro';
-import type { SkillsIndex } from '../types.js';
+import type { SkillData, SkillsIndex } from '../types.js';
+import { SCHEMA_URI } from '../types.js';
 
 /**
- * GET /.well-known/skills/index.json
+ * GET /.well-known/agent-skills/index.json
  *
- * Returns a JSON index of all available skills per the Agent Skills Discovery RFC.
+ * Returns a JSON index of all available skills per the Agent Skills Discovery RFC v0.2.0.
  *
- * @see https://github.com/anthropics/anthropic-quickstarts/tree/main/skills-discovery-rfc
+ * @see https://github.com/cloudflare/agent-skills-discovery-rfc
  */
 export const GET: APIRoute = async () => {
 	// Dynamic import of virtual module - resolved at runtime by Astro
@@ -15,19 +16,23 @@ export const GET: APIRoute = async () => {
 	const skills = await getCollection('skills');
 
 	const index: SkillsIndex = {
+		$schema: SCHEMA_URI,
 		skills: skills.map(
-			(skill: { data: { name: string; description: string; files: Record<string, unknown> } }) => {
-				// Extract file paths from the files record and sort with SKILL.md first
-				const filePaths = Object.keys(skill.data.files).sort((a, b) => {
-					if (a === 'SKILL.md') return -1;
-					if (b === 'SKILL.md') return 1;
-					return a.localeCompare(b);
-				});
+			(skill: { id: string; data: SkillData }) => {
+				const { name, type, description, digest } = skill.data;
+
+				// Determine URL based on type
+				const url =
+					type === 'archive'
+						? `/.well-known/agent-skills/${skill.id}.tar.gz`
+						: `/.well-known/agent-skills/${skill.id}/SKILL.md`;
 
 				return {
-					name: skill.data.name,
-					description: skill.data.description,
-					files: filePaths,
+					name,
+					type,
+					description,
+					url,
+					digest,
 				};
 			}
 		),
