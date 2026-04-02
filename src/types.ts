@@ -1,4 +1,9 @@
 /**
+ * The v0.2.0 $schema URI for the Agent Skills Discovery index
+ */
+export const SCHEMA_URI = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
+
+/**
  * Options for the skills integration
  * Currently reserved for future use.
  */
@@ -18,16 +23,9 @@ export interface SkillsLoaderOptions {
 }
 
 /**
- * Represents a single file within a skill
+ * Distribution type for a skill
  */
-export interface SkillFile {
-	/** File content (UTF-8 string or base64-encoded for binary files) */
-	content: string;
-	/** Encoding used for the content */
-	encoding: 'utf-8' | 'base64';
-	/** MIME type of the file */
-	contentType: string;
-}
+export type SkillType = 'skill-md' | 'archive';
 
 /**
  * Represents a skill's data as stored in the content collection
@@ -37,8 +35,14 @@ export interface SkillData {
 	name: string;
 	/** Skill description from SKILL.md frontmatter */
 	description: string;
-	/** All files in the skill directory, keyed by relative path */
-	files: Record<string, SkillFile>;
+	/** Distribution type: "skill-md" for single SKILL.md, "archive" for bundled archive */
+	type: SkillType;
+	/** SHA-256 content digest of the artifact, formatted as sha256:{hex} */
+	digest: string;
+	/** Raw SKILL.md content (UTF-8 string) */
+	skillMdRaw: string;
+	/** Pre-generated tar.gz archive (base64-encoded) - only present for archive type skills */
+	archive?: string;
 }
 
 /**
@@ -54,12 +58,20 @@ export interface Skill {
 }
 
 /**
- * The index.json response format per the Agent Skills Discovery RFC
+ * A skill entry in the v0.2.0 discovery index
+ */
+export interface SkillsIndexEntry {
+	name: string;
+	type: SkillType;
+	description: string;
+	url: string;
+	digest: string;
+}
+
+/**
+ * The index.json response format per the Agent Skills Discovery RFC v0.2.0
  */
 export interface SkillsIndex {
-	skills: Array<{
-		name: string;
-		description: string;
-		files: string[];
-	}>;
+	$schema: string;
+	skills: SkillsIndexEntry[];
 }

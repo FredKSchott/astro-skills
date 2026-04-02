@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, promises as fs } from 'node:fs';
 import { dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -5,16 +6,26 @@ import type { Loader } from 'astro/loaders';
 import matter from 'gray-matter';
 import pLimit from 'p-limit';
 import picomatch from 'picomatch';
+import { Header, Pack, ReadEntry } from 'tar';
 import { glob as tinyglobby } from 'tinyglobby';
 import { skillSchema } from './schema.js';
-import type { SkillFile, SkillsLoaderOptions } from './types.js';
+import type { SkillsLoaderOptions, SkillType } from './types.js';
 import {
-	getMimeType,
 	getSkillNameValidationError,
 	isBinaryFile,
 	isValidSkillName,
 	normalizeFilePath,
 } from './utils.js';
+
+/**
+ * Represents a single file within a skill (used internally during loading)
+ */
+interface SkillFile {
+	/** File content (UTF-8 string or base64-encoded for binary files) */
+	content: string;
+	/** Encoding used for the content */
+	encoding: 'utf-8' | 'base64';
+}
 
 /**
  * Default base directory for skills
@@ -29,10 +40,72 @@ function posixRelative(from: string, to: string): string {
 }
 
 /**
+ * Compute SHA-256 digest of a buffer, formatted as sha256:{hex}
+ */
+function sha256(data: Buffer | string): string {
+	const hash = createHash('sha256');
+	hash.update(data);
+	return `sha256:${hash.digest('hex')}`;
+}
+
+/**
+ * Generate a tar.gz archive from a set of files.
+ * Returns the archive as a Buffer.
+ */
+async function generateTarGz(files: Record<string, SkillFile>): Promise<Buffer> {
+	return new Promise((resolve, reject) => {
+		const pack = new Pack({ gzip: true });
+		const chunks: Buffer[] = [];
+
+		pack.on('data', (chunk: Buffer) => {
+			chunks.push(chunk);
+		});
+
+		pack.on('end', () => {
+			resolve(Buffer.concat(chunks));
+		});
+
+		pack.on('error', reject);
+
+		// Sort file paths for deterministic output
+		const sortedPaths = Object.keys(files).sort();
+
+		for (const filePath of sortedPaths) {
+			const file = files[filePath];
+			let content: Buffer;
+
+			if (file.encoding === 'base64') {
+				content = Buffer.from(file.content, 'base64');
+			} else {
+				content = Buffer.from(file.content, 'utf-8');
+			}
+
+			const header = new Header({
+				path: filePath,
+				size: content.length,
+				type: 'File',
+				mode: 0o644,
+				mtime: new Date(0), // Use epoch for deterministic output
+			});
+
+			const entry = new ReadEntry(header);
+			pack.write(entry);
+			entry.write(content);
+			entry.end();
+		}
+
+		pack.end();
+	});
+}
+
+/**
  * Creates a content loader for Agent Skills.
  *
  * Skills are loaded from directories containing a `SKILL.md` file.
  * Each skill directory becomes a single entry in the content collection.
+ *
+ * - Skills with only `SKILL.md` are stored as `type: "skill-md"`
+ * - Skills with additional files are stored as `type: "archive"` with a pre-generated tar.gz
  *
  * @example
  * ```ts
@@ -56,7 +129,7 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 	return {
 		name: 'skills-loader',
 		schema: skillSchema,
-		load: async ({ config, logger, watcher, parseData, store, generateDigest, renderMarkdown }) => {
+		load: async ({ config, logger, watcher, parseData, store, renderMarkdown }) => {
 			const untouchedSkills = new Set(store.keys());
 
 			// Resolve base directory
@@ -110,16 +183,18 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 
 				untouchedSkills.delete(skillId);
 
-				// Read SKILL.md
+				// Read SKILL.md as raw bytes for digest computation
 				const skillMdUrl = new URL(skillMdPath, baseDir);
-				const skillMdContent = await fs.readFile(skillMdUrl, 'utf-8').catch((err) => {
+				const skillMdRawBuffer = await fs.readFile(skillMdUrl).catch((err) => {
 					logger.error(`Error reading ${skillMdPath}: ${err.message}`);
 					return null;
 				});
 
-				if (skillMdContent === null) {
+				if (skillMdRawBuffer === null) {
 					return;
 				}
+
+				const skillMdContent = skillMdRawBuffer.toString('utf-8');
 
 				// Parse frontmatter
 				const { data: frontmatter, content: body } = matter(skillMdContent);
@@ -138,7 +213,7 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 					return;
 				}
 
-				// Find all files in the skill directory
+				// Find all files in the skill directory to determine skill type
 				const skillDirUrl = new URL(skillDir + '/', baseDir);
 				const skillDirPath = fileURLToPath(skillDirUrl);
 
@@ -148,59 +223,81 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 					onlyFiles: true,
 				});
 
-				// Read all files and build the files map
-				const files: Record<string, SkillFile> = {};
-				const limit = pLimit(10);
+				// Determine skill type: "skill-md" if only SKILL.md, "archive" if multiple files
+				const isArchive = allFiles.length > 1;
+				const skillType: SkillType = isArchive ? 'archive' : 'skill-md';
 
-				await Promise.all(
-					allFiles.map((filePath) =>
-						limit(async () => {
-							const fileUrl = new URL(filePath, skillDirUrl);
-							const fullPath = fileURLToPath(fileUrl);
-							const normalizedPath = normalizeFilePath(filePath);
+				// Compute digest and optional archive
+				let artifactDigest: string;
+				let archiveBase64: string | undefined;
 
-							// Track file -> skill mapping for watcher
-							fileToSkillMap.set(fullPath, skillId);
+				if (isArchive) {
+					// Pre-seed with the SKILL.md we already read to avoid reading it twice
+					const files: Record<string, SkillFile> = {
+						'SKILL.md': { content: skillMdContent, encoding: 'utf-8' },
+					};
+					const limit = pLimit(10);
 
-							try {
-								const contentType = getMimeType(filePath);
-								const isBinary = isBinaryFile(filePath);
+					// Track SKILL.md in the watcher map
+					fileToSkillMap.set(fileURLToPath(skillMdUrl), skillId);
 
-								let content: string;
-								let encoding: 'utf-8' | 'base64';
+					await Promise.all(
+						allFiles
+							.filter((filePath) => normalizeFilePath(filePath) !== 'SKILL.md')
+							.map((filePath) =>
+								limit(async () => {
+									const fileUrl = new URL(filePath, skillDirUrl);
+									const fullPath = fileURLToPath(fileUrl);
+									const normalizedPath = normalizeFilePath(filePath);
 
-								if (isBinary) {
-									const buffer = await fs.readFile(fileUrl);
-									content = buffer.toString('base64');
-									encoding = 'base64';
-								} else {
-									content = await fs.readFile(fileUrl, 'utf-8');
-									encoding = 'utf-8';
-								}
+									// Track file -> skill mapping for watcher
+									fileToSkillMap.set(fullPath, skillId);
 
-								files[normalizedPath] = {
-									content,
-									encoding,
-									contentType,
-								};
-							} catch (err: any) {
-								logger.warn(`Error reading file ${filePath} in skill ${skillId}: ${err.message}`);
-							}
-						}),
-					),
-				);
+									try {
+										const isBinary = isBinaryFile(filePath);
 
-				// Generate digest from all file contents
-				const digestInput = JSON.stringify({
-					frontmatter,
-					body,
-					files: Object.keys(files).sort(),
-				});
-				const digest = generateDigest(digestInput);
+										let content: string;
+										let encoding: 'utf-8' | 'base64';
 
-				// Check if skill has changed
+										if (isBinary) {
+											const buffer = await fs.readFile(fileUrl);
+											content = buffer.toString('base64');
+											encoding = 'base64';
+										} else {
+											content = await fs.readFile(fileUrl, 'utf-8');
+											encoding = 'utf-8';
+										}
+
+										files[normalizedPath] = {
+											content,
+											encoding,
+										};
+									} catch (err: any) {
+										logger.warn(`Error reading file ${filePath} in skill ${skillId}: ${err.message}`);
+									}
+								}),
+							),
+					);
+
+					// Generate tar.gz and compute digest of the archive
+					const archiveBuffer = await generateTarGz(files);
+					artifactDigest = sha256(archiveBuffer);
+					archiveBase64 = archiveBuffer.toString('base64');
+				} else {
+					// For skill-md, only need the SKILL.md we already read
+					artifactDigest = sha256(skillMdRawBuffer);
+
+					// Still track file -> skill mapping for watcher
+					const skillMdFullPath = fileURLToPath(skillMdUrl);
+					fileToSkillMap.set(skillMdFullPath, skillId);
+				}
+
+				// Use the artifact digest for change detection.
+				// This correctly captures all file content changes:
+				// - For skill-md: SHA-256 of the SKILL.md raw bytes
+				// - For archive: SHA-256 of the tar.gz (derived from all files)
 				const existingEntry = store.get(skillId);
-				if (existingEntry && existingEntry.digest === digest) {
+				if (existingEntry && existingEntry.digest === artifactDigest) {
 					return;
 				}
 
@@ -213,7 +310,10 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 					data: {
 						name: frontmatter.name,
 						description: frontmatter.description,
-						files,
+						type: skillType,
+						digest: artifactDigest,
+						skillMdRaw: skillMdContent,
+						archive: archiveBase64,
 					},
 				});
 
@@ -222,11 +322,11 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 					id: skillId,
 					data,
 					body,
-					digest,
+					digest: artifactDigest,
 					rendered,
 				});
 
-				logger.debug(`Loaded skill "${skillId}"`);
+				logger.debug(`Loaded skill "${skillId}" (type: ${skillType})`);
 			}
 
 			// Load all skills

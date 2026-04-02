@@ -21,7 +21,8 @@
   "exports": {
     ".": "./dist/index.js",
     "./routes/index-json": "./dist/routes/index-json.js",
-    "./routes/skill-files": "./dist/routes/skill-files.js",
+    "./routes/skill-md": "./dist/routes/skill-md.js",
+    "./routes/skill-archive": "./dist/routes/skill-archive.js",
     "./package.json": "./package.json"
   },
   "files": [
@@ -34,6 +35,7 @@
     "gray-matter": "^4.0.3",
     "p-limit": "^6.2.0",
     "picomatch": "^4.0.2",
+    "tar": "^7.5.13",
     "tinyglobby": "^0.2.14"
   },
   "peerDependencies": {
