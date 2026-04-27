@@ -2,9 +2,9 @@
 
 Let your users do this: `npx skills add https://your-website-here.com/`
 
-Bundle [Agent Skills](https://agentskills.io/) into your Astro site, for others to consume by URL. This integration implements the [Agent Skills Discovery RFC](https://github.com/elithrar/agent-skills-discovery-rfc), allowing AI agents to discover and use skills published on your website. 
+Bundle [Agent Skills](https://agentskills.io/) into your Astro site, for others to consume by URL. This integration implements the [Agent Skills Discovery RFC](https://github.com/agentskills/agentskills/pull/254), allowing AI agents to discover and use skills published on your website. 
 
-- Automatically generates your `/.well-known/skills/index.json` index file.
+- Automatically generates your `/.well-known/agent-skills/index.json` index file.
 - Validates your skills, frontmatter, etc. for compliance.
 - Designed for Astro [Content Collections](https://docs.astro.build/en/guides/content-collections/).
 
@@ -71,5 +71,5 @@ export const collections = {
 ## Learn More
 
 - [Agent Skills Specification](https://agentskills.io/specification)
-- [Agent Skills Discovery RFC](https://github.com/elithrar/agent-skills-discovery-rfc)
+- [Agent Skills Discovery RFC](https://github.com/agentskills/agentskills/pull/254)
 - [Astro Content Collections](https://docs.astro.build/en/guides/content-collections/)

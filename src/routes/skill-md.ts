@@ -25,7 +25,7 @@ export const getStaticPaths: GetStaticPaths = async () => {
  *
  * Serves the SKILL.md file for a skill per the Agent Skills Discovery RFC v0.2.0.
  *
- * @see https://github.com/cloudflare/agent-skills-discovery-rfc
+ * @see https://github.com/agentskills/agentskills/pull/254
  */
 export const GET: APIRoute = async ({ params }) => {
 	const { skill } = params;

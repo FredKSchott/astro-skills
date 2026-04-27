@@ -67,6 +67,20 @@ export default function skillsIntegration(): AstroIntegration {
 					entrypoint: 'astro-skills/routes/skill-archive',
 				});
 
+				// Keep the legacy v0.1 discovery paths working while clients migrate to v0.2.
+				injectRoute({
+					pattern: '/.well-known/skills/index.json',
+					entrypoint: 'astro-skills/routes/index-json',
+				});
+				injectRoute({
+					pattern: '/.well-known/skills/[skill]/SKILL.md',
+					entrypoint: 'astro-skills/routes/skill-md',
+				});
+				injectRoute({
+					pattern: '/.well-known/skills/[skill].tar.gz',
+					entrypoint: 'astro-skills/routes/skill-archive',
+				});
+
 				logger.info('Agent Skills Discovery routes configured');
 			},
 		},

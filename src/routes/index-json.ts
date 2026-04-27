@@ -7,7 +7,7 @@ import { SCHEMA_URI } from '../types.js';
  *
  * Returns a JSON index of all available skills per the Agent Skills Discovery RFC v0.2.0.
  *
- * @see https://github.com/cloudflare/agent-skills-discovery-rfc
+ * @see https://github.com/agentskills/agentskills/pull/254
  */
 export const GET: APIRoute = async () => {
 	// Dynamic import of virtual module - resolved at runtime by Astro
