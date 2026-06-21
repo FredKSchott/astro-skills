@@ -69,14 +69,34 @@ export const GET: APIRoute<Props> = async ({ props }) => {
 
 	return new Response(body, {
 		status: 200,
-		headers: {
-			...cacheHeaders,
-			'Content-Type': props.contentType,
-		},
+		headers: resourceHeaders(props),
+	});
+};
+
+export const HEAD: APIRoute<Props> = async ({ props }) => {
+	return new Response(null, {
+		status: 200,
+		headers: resourceHeaders(props),
 	});
 };
 
 function decodeBase64(body: string): ArrayBuffer {
 	const buffer = Buffer.from(body, 'base64');
 	return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+}
+
+function resourceHeaders(props: Props): HeadersInit {
+	return {
+		...cacheHeaders,
+		'Content-Type': props.contentType,
+		'Content-Length': getContentLength(props).toString(),
+	};
+}
+
+function getContentLength(props: Props): number {
+	if (props.encoding === 'base64') {
+		return Buffer.from(props.body, 'base64').byteLength;
+	}
+
+	return Buffer.byteLength(props.body, 'utf-8');
 }

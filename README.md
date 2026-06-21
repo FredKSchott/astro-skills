@@ -66,9 +66,13 @@ This generates:
 - Direct static routes for every file in every skill directory
 - `.tar.gz` archive resources for multi-file skills
 
+The existing `/.well-known/agent-skills/index.json` discovery output remains enabled, so one Astro site can support both the Agent Skills well-known discovery proposal and SEP-2640/MCP resource publication at the same time.
+
 The MCP index follows the SEP-2640 draft shape: it uses `skill://.../SKILL.md` resource URLs, includes the raw `SKILL.md` SHA-256 digest when `url` is present, and copies the complete `SKILL.md` frontmatter into each `skills[].frontmatter` entry. Multi-file skills also include `archives[]` alternatives whose digests are computed from the generated archive bytes.
 
 The generated `.tree.json` file is a static-host helper, not part of SEP-2640 itself. It lists directory and file resource metadata so an MCP server can implement `resources/directory/read` without rescanning the filesystem at request time.
+
+During static builds, `astro-skills` also writes an `_headers` block for generated skill artifacts so hosts that support `_headers` serve JSON, Markdown, and archive files with the expected content types.
 
 ## Configuration
 

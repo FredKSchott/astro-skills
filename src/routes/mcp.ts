@@ -80,19 +80,20 @@ export const GET: APIRoute<Props> = async ({ props }) => {
 	if (props.kind === 'json') {
 		return new Response(props.body, {
 			status: 200,
-			headers: {
-				...cacheHeaders,
-				'Content-Type': props.contentType,
-			},
+			headers: artifactHeaders(props),
 		});
 	}
 
 	return new Response(decodeBody(props.body, props.encoding), {
 		status: 200,
-		headers: {
-			...cacheHeaders,
-			'Content-Type': props.contentType,
-		},
+		headers: artifactHeaders(props),
+	});
+};
+
+export const HEAD: APIRoute<Props> = async ({ props }) => {
+	return new Response(null, {
+		status: 200,
+		headers: artifactHeaders(props),
 	});
 };
 
@@ -122,4 +123,20 @@ function decodeBody(body: string, encoding: 'utf-8' | 'base64'): string | ArrayB
 		bytes[index] = binary.charCodeAt(index);
 	}
 	return bytes.buffer;
+}
+
+function artifactHeaders(props: Props): HeadersInit {
+	return {
+		...cacheHeaders,
+		'Content-Type': props.contentType,
+		'Content-Length': getContentLength(props).toString(),
+	};
+}
+
+function getContentLength(props: Props): number {
+	if (props.kind === 'file' && props.encoding === 'base64') {
+		return Buffer.from(props.body, 'base64').byteLength;
+	}
+
+	return Buffer.byteLength(props.body, 'utf-8');
 }

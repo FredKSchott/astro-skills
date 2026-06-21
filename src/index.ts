@@ -1,5 +1,6 @@
 import type { AstroIntegration } from 'astro';
 import { resolveSkillsMcpOptions } from './mcp.js';
+import { writeStaticHeaders } from './static-headers.js';
 import type { ResolvedSkillsMcpOptions, SkillsIntegrationOptions } from './types.js';
 
 // Re-export the loader for use in content.config.ts
@@ -99,6 +100,12 @@ export default function skillsIntegration(options: SkillsIntegrationOptions = {}
 					});
 
 					logger.info(`Experimental MCP Skills routes configured at ${mcpOptions.prefix}`);
+				}
+			},
+			'astro:build:done': async ({ dir, logger }) => {
+				const entryCount = await writeStaticHeaders(dir, { mcp: mcpOptions });
+				if (entryCount > 0) {
+					logger.info(`Generated _headers entries for ${entryCount} skill artifact(s)`);
 				}
 			},
 		},
