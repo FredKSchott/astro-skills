@@ -1,10 +1,31 @@
 import type { AstroIntegration } from 'astro';
+import { resolveSkillsMcpOptions } from './mcp.js';
+import type { ResolvedSkillsMcpOptions, SkillsIntegrationOptions } from './types.js';
 
 // Re-export the loader for use in content.config.ts
 export { skillsLoader } from './loader.js';
 
 // Re-export types
-export type { Skill, SkillData, SkillsIndex, SkillsIndexEntry, SkillsLoaderOptions, SkillType } from './types.js';
+export type {
+	ResolvedSkillsMcpOptions,
+	Skill,
+	SkillData,
+	SkillFileData,
+	SkillFrontmatter,
+	SkillsIndex,
+	SkillsIndexEntry,
+	SkillsIntegrationOptions,
+	SkillsLoaderOptions,
+	SkillsMcpArchiveEntry,
+	SkillsMcpIndex,
+	SkillsMcpIndexEntry,
+	SkillsMcpOptions,
+	SkillsMcpTree,
+	SkillsMcpTreeDirectoryEntry,
+	SkillsMcpTreeEntry,
+	SkillsMcpTreeFileEntry,
+	SkillType,
+} from './types.js';
 
 const PKG_NAME = 'astro-skills';
 
@@ -42,11 +63,13 @@ const PKG_NAME = 'astro-skills';
  *
  * @see https://agentskills.io/
  */
-export default function skillsIntegration(): AstroIntegration {
+export default function skillsIntegration(options: SkillsIntegrationOptions = {}): AstroIntegration {
+	const mcpOptions = resolveSkillsMcpOptions(options.mcp);
+
 	return {
 		name: PKG_NAME,
 		hooks: {
-			'astro:config:setup': ({ injectRoute, logger }) => {
+			'astro:config:setup': ({ injectRoute, logger, updateConfig }) => {
 				logger.info('Setting up Agent Skills Discovery routes');
 
 				// Inject the index.json route
@@ -55,20 +78,50 @@ export default function skillsIntegration(): AstroIntegration {
 					entrypoint: 'astro-skills/routes/index-json',
 				});
 
-				// Inject the SKILL.md route for skill-md type skills
+				// Inject the resource route for skill-md and archive type skills
 				injectRoute({
-					pattern: '/.well-known/agent-skills/[skill]/SKILL.md',
-					entrypoint: 'astro-skills/routes/skill-md',
-				});
-
-				// Inject the archive route for archive type skills
-				injectRoute({
-					pattern: '/.well-known/agent-skills/[skill].tar.gz',
-					entrypoint: 'astro-skills/routes/skill-archive',
+					pattern: '/.well-known/agent-skills/[...path]',
+					entrypoint: 'astro-skills/routes/agent-skill-resource',
 				});
 
 				logger.info('Agent Skills Discovery routes configured');
+
+				if (mcpOptions) {
+					updateConfig({
+						vite: {
+							plugins: [mcpConfigPlugin(mcpOptions)],
+						},
+					});
+
+					injectRoute({
+						pattern: `${mcpOptions.prefix}/[...path]`,
+						entrypoint: 'astro-skills/routes/mcp',
+					});
+
+					logger.info(`Experimental MCP Skills routes configured at ${mcpOptions.prefix}`);
+				}
 			},
+		},
+	};
+}
+
+function mcpConfigPlugin(config: ResolvedSkillsMcpOptions) {
+	const virtualModuleId = 'astro-skills:mcp-config';
+	const resolvedVirtualModuleId = `\0${virtualModuleId}`;
+
+	return {
+		name: 'astro-skills:mcp-config',
+		resolveId(id: string) {
+			if (id === virtualModuleId) {
+				return resolvedVirtualModuleId;
+			}
+			return undefined;
+		},
+		load(id: string) {
+			if (id === resolvedVirtualModuleId) {
+				return `export default ${JSON.stringify(config)};`;
+			}
+			return undefined;
 		},
 	};
 }

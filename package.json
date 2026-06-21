@@ -21,8 +21,10 @@
   "exports": {
     ".": "./dist/index.js",
     "./routes/index-json": "./dist/routes/index-json.js",
+    "./routes/agent-skill-resource": "./dist/routes/agent-skill-resource.js",
     "./routes/skill-md": "./dist/routes/skill-md.js",
     "./routes/skill-archive": "./dist/routes/skill-archive.js",
+    "./routes/mcp": "./dist/routes/mcp.js",
     "./package.json": "./package.json"
   },
   "files": [

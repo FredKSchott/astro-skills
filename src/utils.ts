@@ -57,6 +57,46 @@ export function getSkillNameValidationError(name: string): string | null {
 }
 
 /**
+ * Validates a slash-separated skill path for SEP-2640 resource mapping.
+ *
+ * Prefix segments are server-chosen organization. The final segment is the
+ * skill name and must satisfy the Agent Skills naming rules.
+ */
+export function isValidSkillPath(path: string): boolean {
+	return getSkillPathValidationError(path) === null;
+}
+
+/**
+ * Returns validation error message for an invalid skill path, or null if valid.
+ */
+export function getSkillPathValidationError(path: string): string | null {
+	if (!path) {
+		return 'Skill path cannot be empty';
+	}
+
+	const normalized = normalizeFilePath(path);
+	const segments = normalized.split('/');
+	if (segments.some((segment) => segment.length === 0)) {
+		return 'Skill path cannot contain empty segments';
+	}
+	if (segments.some((segment) => segment === '.' || segment === '..')) {
+		return 'Skill path cannot contain "." or ".." segments';
+	}
+
+	const skillName = segments.at(-1);
+	if (!skillName) {
+		return 'Skill path cannot be empty';
+	}
+
+	const skillNameError = getSkillNameValidationError(skillName);
+	if (skillNameError) {
+		return `Final path segment is invalid: ${skillNameError}`;
+	}
+
+	return null;
+}
+
+/**
  * Binary file extensions that should be base64-encoded in archives
  */
 const BINARY_EXTENSIONS = new Set([
@@ -103,6 +143,72 @@ const BINARY_EXTENSIONS = new Set([
 export function isBinaryFile(filePath: string): boolean {
 	const ext = extname(filePath).toLowerCase();
 	return BINARY_EXTENSIONS.has(ext);
+}
+
+/**
+ * MIME types used when serving skill files as resources.
+ */
+export function getMimeType(filePath: string): string {
+	const ext = extname(filePath).toLowerCase();
+	switch (ext) {
+		case '.md':
+		case '.mdc':
+			return 'text/markdown';
+		case '.json':
+			return 'application/json';
+		case '.js':
+		case '.mjs':
+			return 'application/javascript';
+		case '.ts':
+		case '.tsx':
+			return 'text/typescript';
+		case '.py':
+			return 'text/x-python';
+		case '.sh':
+			return 'text/x-shellscript';
+		case '.svg':
+			return 'image/svg+xml';
+		case '.html':
+			return 'text/html';
+		case '.css':
+			return 'text/css';
+		case '.png':
+			return 'image/png';
+		case '.jpg':
+		case '.jpeg':
+			return 'image/jpeg';
+		case '.gif':
+			return 'image/gif';
+		case '.webp':
+			return 'image/webp';
+		case '.pdf':
+			return 'application/pdf';
+		case '.zip':
+			return 'application/zip';
+		case '.gz':
+			return 'application/gzip';
+		case '.tar':
+			return 'application/x-tar';
+		case '.txt':
+		case '.yaml':
+		case '.yml':
+		case '.toml':
+			return 'text/plain';
+		default:
+			return 'application/octet-stream';
+	}
+}
+
+/**
+ * Determines if a MIME type can be safely served as UTF-8 text.
+ */
+export function isTextMimeType(mimeType: string): boolean {
+	return (
+		mimeType.startsWith('text/') ||
+		mimeType === 'application/json' ||
+		mimeType === 'application/javascript' ||
+		mimeType === 'image/svg+xml'
+	);
 }
 
 /**
