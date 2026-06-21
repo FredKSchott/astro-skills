@@ -97,52 +97,36 @@ export function getSkillPathValidationError(path: string): string | null {
 }
 
 /**
- * Binary file extensions that should be base64-encoded in archives
+ * File extensions that can be safely stored as UTF-8 strings. Unknown
+ * extensions default to base64 so served resource bytes still match digests.
  */
-const BINARY_EXTENSIONS = new Set([
-	// Images
-	'.png',
-	'.jpg',
-	'.jpeg',
-	'.gif',
-	'.webp',
-	'.ico',
-	'.bmp',
-	'.tiff',
-	'.tif',
-
-	// Documents
-	'.pdf',
-	'.doc',
-	'.docx',
-	'.xls',
-	'.xlsx',
-	'.ppt',
-	'.pptx',
-
-	// Archives
-	'.zip',
-	'.tar',
-	'.gz',
-	'.rar',
-	'.7z',
-	'.bz2',
-
-	// Other binary
-	'.wasm',
-	'.exe',
-	'.dll',
-	'.so',
-	'.dylib',
-	'.bin',
+const TEXT_EXTENSIONS = new Set([
+	'.css',
+	'.csv',
+	'.html',
+	'.js',
+	'.json',
+	'.md',
+	'.mdc',
+	'.mjs',
+	'.py',
+	'.sh',
+	'.svg',
+	'.toml',
+	'.ts',
+	'.tsx',
+	'.txt',
+	'.xml',
+	'.yaml',
+	'.yml',
 ]);
 
 /**
- * Determines if a file should be treated as binary (and base64-encoded).
+ * Determines if a file should be stored as UTF-8 text.
  */
-export function isBinaryFile(filePath: string): boolean {
+export function isTextFile(filePath: string): boolean {
 	const ext = extname(filePath).toLowerCase();
-	return BINARY_EXTENSIONS.has(ext);
+	return TEXT_EXTENSIONS.has(ext);
 }
 
 /**

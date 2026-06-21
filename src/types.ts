@@ -85,7 +85,7 @@ export type SkillFrontmatter = Record<string, unknown> & {
 export interface SkillFileData {
 	/** Path relative to the skill directory root */
 	path: string;
-	/** File content (UTF-8 string or base64-encoded for binary files) */
+	/** File content (UTF-8 string or base64-encoded for non-text files) */
 	content: string;
 	/** Encoding used for the content */
 	encoding: 'utf-8' | 'base64';

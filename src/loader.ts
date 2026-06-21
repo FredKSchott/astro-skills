@@ -14,7 +14,7 @@ import {
 	getMimeType,
 	getSkillNameValidationError,
 	getSkillPathValidationError,
-	isBinaryFile,
+	isTextFile,
 	normalizeFilePath,
 } from './utils.js';
 
@@ -27,7 +27,7 @@ type ArchiveFile = Pick<SkillFileData, 'content' | 'encoding'>;
  * Represents a single file as loaded from disk.
  */
 interface LoadedSkillFile extends SkillFileData {
-	/** File content (UTF-8 string or base64-encoded for binary files) */
+	/** File content (UTF-8 string or base64-encoded for non-text files) */
 	content: string;
 	/** Encoding used for the content */
 	encoding: 'utf-8' | 'base64';
@@ -104,6 +104,39 @@ async function generateTarGz(files: Record<string, ArchiveFile>): Promise<Buffer
 
 		pack.end();
 	});
+}
+
+function hasCurrentSkillDataShape(data: unknown, skillType: SkillType): boolean {
+	if (!isRecord(data)) return false;
+	if (typeof data.skillMdDigest !== 'string') return false;
+	if (!isRecord(data.frontmatter)) return false;
+	if (typeof data.frontmatter.name !== 'string') return false;
+	if (typeof data.frontmatter.description !== 'string') return false;
+	if (!Array.isArray(data.files)) return false;
+	if (!data.files.some((file) => isSkillFileDataLike(file) && file.path === 'SKILL.md')) {
+		return false;
+	}
+	if (!data.files.every(isSkillFileDataLike)) return false;
+	if (skillType === 'archive' && typeof data.archiveDigest !== 'string') return false;
+
+	return true;
+}
+
+function isSkillFileDataLike(value: unknown): value is SkillFileData {
+	if (!isRecord(value)) return false;
+
+	return (
+		typeof value.path === 'string' &&
+		typeof value.content === 'string' &&
+		(value.encoding === 'utf-8' || value.encoding === 'base64') &&
+		typeof value.mimeType === 'string' &&
+		typeof value.digest === 'string' &&
+		typeof value.size === 'number'
+	);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null;
 }
 
 /**
@@ -286,9 +319,9 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 									normalizeFilePath(filePath) === 'SKILL.md'
 										? skillMdRawBuffer
 										: await fs.readFile(fileUrl);
-								const isBinary = isBinaryFile(filePath);
-								const encoding = isBinary ? 'base64' : 'utf-8';
-								const content = isBinary ? buffer.toString('base64') : buffer.toString('utf-8');
+								const isText = isTextFile(filePath);
+								const encoding = isText ? 'utf-8' : 'base64';
+								const content = isText ? buffer.toString('utf-8') : buffer.toString('base64');
 
 								return {
 									path: filePath,
@@ -349,7 +382,11 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 				// - For skill-md: SHA-256 of the SKILL.md raw bytes
 				// - For archive: SHA-256 of the tar.gz (derived from all files)
 				const existingEntry = store.get(skillId);
-				if (existingEntry && existingEntry.digest === artifactDigest) {
+				if (
+					existingEntry &&
+					existingEntry.digest === artifactDigest &&
+					hasCurrentSkillDataShape(existingEntry.data, skillType)
+				) {
 					return;
 				}
 
