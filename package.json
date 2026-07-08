@@ -32,7 +32,7 @@
     "build": "tsc"
   },
   "dependencies": {
-    "gray-matter": "^4.0.3",
+    "yaml": "^2.0.0",
     "p-limit": "^6.2.0",
     "picomatch": "^4.0.2",
     "tar": "^7.5.13",

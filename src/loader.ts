@@ -3,7 +3,17 @@ import { existsSync, promises as fs } from 'node:fs';
 import { dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Loader } from 'astro/loaders';
-import matter from 'gray-matter';
+import { parse as parseYaml } from 'yaml';
+
+/**
+ * Parses YAML frontmatter from a markdown string.
+ * Replaces gray-matter to avoid the transitive js-yaml 3.x security vulnerability.
+ */
+function matter(content: string): { data: Record<string, unknown>; content: string } {
+	const match = content.match(/^---\r?\n([\s\S]+?)\r?\n---\r?\n?([\s\S]*)$/);
+	if (!match) return { data: {}, content };
+	return { data: (parseYaml(match[1]) as Record<string, unknown>) ?? {}, content: match[2] };
+}
 import pLimit from 'p-limit';
 import picomatch from 'picomatch';
 import { Header, Pack, ReadEntry } from 'tar';
