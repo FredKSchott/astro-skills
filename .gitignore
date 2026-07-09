@@ -17,6 +17,7 @@ package-lock.json
 .eslintcache
 .pnpm-store
 .vscode-test/
+.npmrc
 
 # do not commit .env files or any files that end with `.env`
 *.env
