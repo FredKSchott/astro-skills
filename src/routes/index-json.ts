@@ -40,9 +40,20 @@ export const GET: APIRoute = async () => {
 
 	return new Response(JSON.stringify(index, null, 2), {
 		status: 200,
-		headers: {
-			'Content-Type': 'application/json',
-			'Cache-Control': 'public, max-age=3600',
-		},
+		headers: jsonHeaders(),
 	});
 };
+
+export const HEAD: APIRoute = async () => {
+	return new Response(null, {
+		status: 200,
+		headers: jsonHeaders(),
+	});
+};
+
+function jsonHeaders(): HeadersInit {
+	return {
+		'Content-Type': 'application/json',
+		'Cache-Control': 'public, max-age=3600',
+	};
+}

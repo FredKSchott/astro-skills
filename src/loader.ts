@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, promises as fs } from 'node:fs';
-import { dirname, relative } from 'node:path';
+import { basename, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Loader } from 'astro/loaders';
 import { parse as parseYaml } from 'yaml';
@@ -19,22 +19,30 @@ import picomatch from 'picomatch';
 import { Header, Pack, ReadEntry } from 'tar';
 import { glob as tinyglobby } from 'tinyglobby';
 import { skillSchema } from './schema.js';
-import type { SkillsLoaderOptions, SkillType } from './types.js';
+import type { SkillFileData, SkillFrontmatter, SkillsLoaderOptions, SkillType } from './types.js';
 import {
+	getMimeType,
 	getSkillNameValidationError,
-	isBinaryFile,
-	isValidSkillName,
+	getSkillPathValidationError,
+	isTextFile,
 	normalizeFilePath,
 } from './utils.js';
 
 /**
- * Represents a single file within a skill (used internally during loading)
+ * Represents a single file while preparing tar archives.
  */
-interface SkillFile {
-	/** File content (UTF-8 string or base64-encoded for binary files) */
+type ArchiveFile = Pick<SkillFileData, 'content' | 'encoding'>;
+
+/**
+ * Represents a single file as loaded from disk.
+ */
+interface LoadedSkillFile extends SkillFileData {
+	/** File content (UTF-8 string or base64-encoded for non-text files) */
 	content: string;
 	/** Encoding used for the content */
 	encoding: 'utf-8' | 'base64';
+	/** Raw bytes for digest and archive generation */
+	buffer: Buffer;
 }
 
 /**
@@ -62,7 +70,7 @@ function sha256(data: Buffer | string): string {
  * Generate a tar.gz archive from a set of files.
  * Returns the archive as a Buffer.
  */
-async function generateTarGz(files: Record<string, SkillFile>): Promise<Buffer> {
+async function generateTarGz(files: Record<string, ArchiveFile>): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
 		const pack = new Pack({ gzip: true });
 		const chunks: Buffer[] = [];
@@ -106,6 +114,39 @@ async function generateTarGz(files: Record<string, SkillFile>): Promise<Buffer> 
 
 		pack.end();
 	});
+}
+
+function hasCurrentSkillDataShape(data: unknown, skillType: SkillType): boolean {
+	if (!isRecord(data)) return false;
+	if (typeof data.skillMdDigest !== 'string') return false;
+	if (!isRecord(data.frontmatter)) return false;
+	if (typeof data.frontmatter.name !== 'string') return false;
+	if (typeof data.frontmatter.description !== 'string') return false;
+	if (!Array.isArray(data.files)) return false;
+	if (!data.files.some((file) => isSkillFileDataLike(file) && file.path === 'SKILL.md')) {
+		return false;
+	}
+	if (!data.files.every(isSkillFileDataLike)) return false;
+	if (skillType === 'archive' && typeof data.archiveDigest !== 'string') return false;
+
+	return true;
+}
+
+function isSkillFileDataLike(value: unknown): value is SkillFileData {
+	if (!isRecord(value)) return false;
+
+	return (
+		typeof value.path === 'string' &&
+		typeof value.content === 'string' &&
+		(value.encoding === 'utf-8' || value.encoding === 'base64') &&
+		typeof value.mimeType === 'string' &&
+		typeof value.digest === 'string' &&
+		typeof value.size === 'number'
+	);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null;
 }
 
 /**
@@ -172,17 +213,39 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 				);
 			}
 
+			const skillDirs = skillFiles.map((skillFile) => normalizeFilePath(dirname(skillFile)));
+			const invalidNestedSkillDirs = new Set<string>();
+			for (const skillDir of skillDirs) {
+				for (const otherSkillDir of skillDirs) {
+					if (skillDir !== otherSkillDir && otherSkillDir.startsWith(`${skillDir}/`)) {
+						invalidNestedSkillDirs.add(skillDir);
+						invalidNestedSkillDirs.add(otherSkillDir);
+						logger.error(
+							`Nested skills are not supported: "${otherSkillDir}" is inside "${skillDir}".`,
+						);
+					}
+				}
+			}
+
 			/**
 			 * Loads a single skill from its directory
 			 */
 			async function loadSkill(skillMdPath: string, oldId?: string): Promise<void> {
-				const skillDir = dirname(skillMdPath);
-				const skillId = skillDir === '.' ? skillMdPath.replace('/SKILL.md', '') : skillDir;
+				const skillDir = normalizeFilePath(dirname(skillMdPath));
+				if (skillDir === '.') {
+					logger.error('SKILL.md must live inside a skill directory.');
+					return;
+				}
+				const skillId = skillDir;
+				if (invalidNestedSkillDirs.has(skillId)) {
+					return;
+				}
 
-				// Validate skill name
-				if (!isValidSkillName(skillId)) {
-					const error = getSkillNameValidationError(skillId);
-					logger.error(`Invalid skill name "${skillId}": ${error}`);
+				// Validate skill path. Prefix segments may organize skills, but the
+				// final segment must satisfy Agent Skills naming rules.
+				const skillPathError = getSkillPathValidationError(skillId);
+				if (skillPathError) {
+					logger.error(`Invalid skill path "${skillId}": ${skillPathError}`);
 					return;
 				}
 
@@ -223,83 +286,105 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 					return;
 				}
 
+				const skillName = basename(skillId);
+				if (frontmatter.name !== skillName) {
+					logger.error(
+						`Skill "${skillId}" frontmatter name "${frontmatter.name}" must match final path segment "${skillName}"`,
+					);
+					return;
+				}
+
+				const skillNameError = getSkillNameValidationError(frontmatter.name);
+				if (skillNameError) {
+					logger.error(`Invalid skill name "${frontmatter.name}": ${skillNameError}`);
+					return;
+				}
+				const skillFrontmatter = frontmatter as SkillFrontmatter;
+
 				// Find all files in the skill directory to determine skill type
 				const skillDirUrl = new URL(skillDir + '/', baseDir);
 				const skillDirPath = fileURLToPath(skillDirUrl);
 
-				const allFiles = await tinyglobby('**/*', {
-					cwd: skillDirPath,
-					expandDirectories: false,
-					onlyFiles: true,
-				});
+				const allFiles = (
+					await tinyglobby('**/*', {
+						cwd: skillDirPath,
+						expandDirectories: false,
+						onlyFiles: true,
+					})
+				)
+					.map(normalizeFilePath)
+					.sort((a, b) => a.localeCompare(b));
+
+				const limit = pLimit(10);
+				const loadedFiles = await Promise.all(
+					allFiles.map((filePath) =>
+						limit(async (): Promise<LoadedSkillFile | null> => {
+							const fileUrl = new URL(filePath, skillDirUrl);
+							const fullPath = fileURLToPath(fileUrl);
+
+							fileToSkillMap.set(fullPath, skillId);
+
+							try {
+								const buffer =
+									normalizeFilePath(filePath) === 'SKILL.md'
+										? skillMdRawBuffer
+										: await fs.readFile(fileUrl);
+								const isText = isTextFile(filePath);
+								const encoding = isText ? 'utf-8' : 'base64';
+								const content = isText ? buffer.toString('utf-8') : buffer.toString('base64');
+
+								return {
+									path: filePath,
+									content,
+									encoding,
+									mimeType: getMimeType(filePath),
+									digest: sha256(buffer),
+									size: buffer.byteLength,
+									buffer,
+								};
+							} catch (err: any) {
+								logger.warn(`Error reading file ${filePath} in skill ${skillId}: ${err.message}`);
+								return null;
+							}
+						}),
+					),
+				);
+
+				const files = loadedFiles.filter((file): file is LoadedSkillFile => file !== null);
+				const skillMdFile = files.find((file) => file.path === 'SKILL.md');
+				if (!skillMdFile) {
+					logger.error(`Skill "${skillId}" is missing SKILL.md`);
+					return;
+				}
 
 				// Determine skill type: "skill-md" if only SKILL.md, "archive" if multiple files
-				const isArchive = allFiles.length > 1;
+				const isArchive = files.length > 1;
 				const skillType: SkillType = isArchive ? 'archive' : 'skill-md';
 
 				// Compute digest and optional archive
 				let artifactDigest: string;
 				let archiveBase64: string | undefined;
+				let archiveDigest: string | undefined;
 
 				if (isArchive) {
-					// Pre-seed with the SKILL.md we already read to avoid reading it twice
-					const files: Record<string, SkillFile> = {
-						'SKILL.md': { content: skillMdContent, encoding: 'utf-8' },
-					};
-					const limit = pLimit(10);
-
-					// Track SKILL.md in the watcher map
-					fileToSkillMap.set(fileURLToPath(skillMdUrl), skillId);
-
-					await Promise.all(
-						allFiles
-							.filter((filePath) => normalizeFilePath(filePath) !== 'SKILL.md')
-							.map((filePath) =>
-								limit(async () => {
-									const fileUrl = new URL(filePath, skillDirUrl);
-									const fullPath = fileURLToPath(fileUrl);
-									const normalizedPath = normalizeFilePath(filePath);
-
-									// Track file -> skill mapping for watcher
-									fileToSkillMap.set(fullPath, skillId);
-
-									try {
-										const isBinary = isBinaryFile(filePath);
-
-										let content: string;
-										let encoding: 'utf-8' | 'base64';
-
-										if (isBinary) {
-											const buffer = await fs.readFile(fileUrl);
-											content = buffer.toString('base64');
-											encoding = 'base64';
-										} else {
-											content = await fs.readFile(fileUrl, 'utf-8');
-											encoding = 'utf-8';
-										}
-
-										files[normalizedPath] = {
-											content,
-											encoding,
-										};
-									} catch (err: any) {
-										logger.warn(`Error reading file ${filePath} in skill ${skillId}: ${err.message}`);
-									}
-								}),
-							),
+					const archiveFiles: Record<string, ArchiveFile> = Object.fromEntries(
+						files.map((file) => [
+							file.path,
+							{
+								content: file.content,
+								encoding: file.encoding,
+							},
+						]),
 					);
 
 					// Generate tar.gz and compute digest of the archive
-					const archiveBuffer = await generateTarGz(files);
-					artifactDigest = sha256(archiveBuffer);
+					const archiveBuffer = await generateTarGz(archiveFiles);
+					archiveDigest = sha256(archiveBuffer);
+					artifactDigest = archiveDigest;
 					archiveBase64 = archiveBuffer.toString('base64');
 				} else {
 					// For skill-md, only need the SKILL.md we already read
-					artifactDigest = sha256(skillMdRawBuffer);
-
-					// Still track file -> skill mapping for watcher
-					const skillMdFullPath = fileURLToPath(skillMdUrl);
-					fileToSkillMap.set(skillMdFullPath, skillId);
+					artifactDigest = skillMdFile.digest;
 				}
 
 				// Use the artifact digest for change detection.
@@ -307,7 +392,11 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 				// - For skill-md: SHA-256 of the SKILL.md raw bytes
 				// - For archive: SHA-256 of the tar.gz (derived from all files)
 				const existingEntry = store.get(skillId);
-				if (existingEntry && existingEntry.digest === artifactDigest) {
+				if (
+					existingEntry &&
+					existingEntry.digest === artifactDigest &&
+					hasCurrentSkillDataShape(existingEntry.data, skillType)
+				) {
 					return;
 				}
 
@@ -322,8 +411,19 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 						description: frontmatter.description,
 						type: skillType,
 						digest: artifactDigest,
+						skillMdDigest: skillMdFile.digest,
 						skillMdRaw: skillMdContent,
+						frontmatter: skillFrontmatter,
+						files: files.map(({ path, content, encoding, mimeType, digest, size }) => ({
+							path,
+							content,
+							encoding,
+							mimeType,
+							digest,
+							size,
+						})),
 						archive: archiveBase64,
+						archiveDigest,
 					},
 				});
 
@@ -358,21 +458,23 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 			watcher.add(basePath);
 
 			const matchesSkillFile = picomatch('**/SKILL.md');
-			const matchesSkillDir = (filePath: string): string | null => {
-				const rel = posixRelative(basePath, filePath);
+			const findContainingSkill = (filePath: string): string | null => {
+				const rel = normalizeFilePath(posixRelative(basePath, filePath));
 				if (rel.startsWith('..')) return null;
 
-				// Check if this file is within a skill directory
+				const mappedSkillId = fileToSkillMap.get(filePath);
+				if (mappedSkillId) return mappedSkillId;
+
 				const parts = rel.split('/');
-				if (parts.length >= 2) {
-					// Could be in a skill subdirectory
-					const potentialSkillDir = parts[0];
+				for (let index = parts.length - 1; index > 0; index--) {
+					const potentialSkillDir = parts.slice(0, index).join('/');
 					const skillMdPath = `${potentialSkillDir}/SKILL.md`;
 					const skillMdFullPath = fileURLToPath(new URL(skillMdPath, baseDir));
 					if (existsSync(skillMdFullPath)) {
 						return potentialSkillDir;
 					}
 				}
+
 				return null;
 			};
 
@@ -382,7 +484,7 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 
 				// Check if a SKILL.md file changed
 				if (matchesSkillFile(entry)) {
-					const skillId = dirname(entry);
+					const skillId = normalizeFilePath(dirname(entry));
 					const oldId = fileToSkillMap.get(changedPath);
 					await loadSkill(entry, oldId);
 					logger.info(`Reloaded skill "${skillId}"`);
@@ -390,7 +492,7 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 				}
 
 				// Check if any file in a skill directory changed
-				const skillId = matchesSkillDir(changedPath);
+				const skillId = findContainingSkill(changedPath);
 				if (skillId) {
 					const skillMdPath = `${skillId}/SKILL.md`;
 					await loadSkill(skillMdPath);
@@ -407,7 +509,7 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 
 				// If SKILL.md was deleted, remove the skill
 				if (matchesSkillFile(entry)) {
-					const skillId = dirname(entry);
+					const skillId = normalizeFilePath(dirname(entry));
 					store.delete(skillId);
 					fileToSkillMap.delete(deletedPath);
 					logger.info(`Removed skill "${skillId}" (SKILL.md deleted)`);
@@ -415,7 +517,7 @@ export function skillsLoader(options: SkillsLoaderOptions = {}): Loader {
 				}
 
 				// If another file was deleted, reload the skill
-				const skillId = matchesSkillDir(deletedPath);
+				const skillId = findContainingSkill(deletedPath);
 				if (skillId) {
 					const skillMdPath = `${skillId}/SKILL.md`;
 					const skillMdFullPath = fileURLToPath(new URL(skillMdPath, baseDir));
